@@ -1,8 +1,7 @@
 # kbs — Kanji BunSeki (漢字分析)
 
-A small CLI for fetching and analysing kanji entries from
-[`kanji.jitenon.jp`](https://kanji.jitenon.jp). Data is parsed into a single
-JSON store and exposed through subcommands for lookup, classification, and
+A small CLI for fetching and analysing kanji entries from various sources.
+Data is parsed into a single JSON store and exposed through subcommands for lookup, classification, and
 study-card-style display.
 
 The data source and the renderer are decoupled (see `CLAUDE.md` for the
