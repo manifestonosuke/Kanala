@@ -2,6 +2,8 @@
 
 Scrapes kanji entries from `kanji.jitenon.jp` and stores them in a single JSON file. Designed so the data source and the output renderer can each be swapped independently.
 
+**Active planning:** see [`notes/`](./notes/) — one Markdown file per topic for cross-machine context.
+
 ## Layout
 
 ```
