@@ -1,0 +1,40 @@
+# Source Information: bunka.org
+
+## URLs
+- **Main Index (Searchable Table):**
+  https://www.bunka.go.jp/kokugo_nihongo/sisaku/joho/joho/kijun/naikaku/kanji/joyokanjisakuin/index.html
+- **Appendix (付表) Parent Page:**
+  https://www.bunka.go.jp/kokugo_nihongo/sisaku/joho/joho/kijun/naikaku/kanji/index.html
+
+## Extraction Rules
+- **漢字 (Kanji):** Primary key. If "新字体（旧字体）" format is used, the first character is the key.
+- **康熙 (Kouki):** The character inside parentheses in the 漢字 column. Empty string if none.
+- **音訓 (Readings):** 
+    - Separated into "音" (On) and "訓" (Kun) lists.
+    - All readings go into a "常" (Joyo) bucket to match Jitenon compatibility.
+- **付表 (Appendix):**
+    - Scraped from the Fuhyo section.
+    - Formatted as a dictionary/object: `{"Word": "Reading"}`.
+- **備考 (Remarks):** Raw text from the Remarks column.
+
+## Target JSON Structure (bunka.json)
+```json
+{
+  "明": {
+    "康熙": "",
+    "読み": {
+      "音": {
+        "常": ["メイ", "ミョウ"]
+      },
+      "訓": {
+        "常": ["あかり", "あかるい", "あかるむ", "あきらか", "あける", "あく", "あかす"]
+      }
+    },
+    "備考": "",
+    "付表": {
+      "明日": "あす",
+      "明後日": "あさって"
+    }
+  }
+}
+```
