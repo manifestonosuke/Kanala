@@ -1,8 +1,7 @@
 # Purpose
 
-This deck is designed to practice writing Joyo Kanji by using two kanji per card, allowing for all kanji to be covered in a minimal number of entries. It includes all 2,136 Joyo Kanji (plus a few non-Joyo) in 1,216 cards. Most kanji appear only once, but a few are on more than one card. There are very few exceptions with only one kanji per card, typically when the kanji lacks common jukugo (compound words), cannot be combined easily, or when the combinations are to rare to be mentioned.
-
-In short, this deck covers all Joyo Kanji in 1,216 cards, primarily for writing practice, but it also provides a detailed breakdown of key elements and common words for each kanji. The deck uses only Japanese. It can be used to remind new words, readings thought vocabulary and study the kanji structure.
+This deck is designed to practice writing Joyo Kanji, one word is proposed and needs to be written. A card has 2 kanjis to write.
+It allows for all kanji to be covered in a minimal number of entries. It includes all 2,136 Joyo Kanji (plus a few non-Joyo) in 1,216 cards. Most kanji appear only once, but a few are on more than one card. There are very few exceptions with only one kanji per card, typically when the kanji lacks common jukugo (compound words).
 
 It is for people knowing more or less all Joyos and write order (not included in the cards)
 
@@ -14,24 +13,21 @@ In some cases, the front entry may include more than two kanji. Usually only the
 
 # Sample
 
-##表        
-こうちょう　（顔に血が上って赤みを帯びること）
+## Front : こうちょう　（顔に血が上って赤みを帯びること）
 
 
-##回答 
+## Back : 紅潮
 
-紅潮
-
-
-##漢字一号  
+## Additional fields
+### Kanji 1
 紅 （糸｜工）
-##例一号          
-紅葉　紅茶　べに、くれない（紅）　口紅
+### Sample and additional readings
+紅葉　紅茶　深紅（しんくう）　べに（紅）口紅　くれない（紅）
 
 
-##漢字二号  
+### Kanji 2
 潮（氵｜朝）
-##例二号
+### Sample and additional readings
 潮流　風潮　満潮　潮位　しお（潮）上げ潮　引き潮
 
 
