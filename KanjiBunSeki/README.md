@@ -20,13 +20,28 @@ Python 3.10+ (the code uses `X | None` annotations).
 ## Quick start
 
 ```bash
+# jitenon (per-kanji, default source)
 python kbs.py map                # build the kanji→URL-path map (≈12 page fetches)
 python kbs.py build              # fetch every kanji in the map into the store (slow once)
 python kbs.py joyo               # print every 常用 kanji in the store
 python kbs.py anki 生            # study-card view for 生
+
+# bunka (single-page bulk source — 常用漢字索引)
+python kbs.py --source bunka.org build   # one fetch → 2,136 entries
+python kbs.py --source bunka.org get 追  # store-only read (no network)
 ```
 
 `python -m kbs …` is equivalent to `python kbs.py …`.
+
+## Sources
+
+| name      | mode       | URL pattern                              | needs map | notes                          |
+|-----------|------------|------------------------------------------|-----------|--------------------------------|
+| `jitenon`   | per-kanji  | `kanji.jitenon.jp/kanji/{id}`            | yes       | default; rich schema           |
+| `bunka.org` | bulk       | `bunka.go.jp/...joyokanjisakuin/index.html` | no   | 常用漢字 only; CP932 page; 付表 unimplemented |
+
+Pick with `--source <name>` (default: `jitenon`). Each source writes to its own
+file: `data/<source>/kanji/kanji.json`.
 
 ## Subcommands
 
@@ -120,17 +135,18 @@ kanji isn't in the store.
 ## Global options
 
 ```bash
---store <path>     # override store JSON (default: ./source/jitenon/kanji.json)
---map <path>       # override map JSON   (default: ./source/jitenon/kanji_map.json)
+--store <path>     # override store JSON (default: ./data/jitenon/kanji/kanji.json)
+--map <path>       # override map JSON   (default: ./data/jitenon/kanji/kanji_map.json)
 -v / --verbose     # print [v] source-file-check messages to stderr
 ```
 
 ## Data layout
 
 ```
-<project root>/source/jitenon/
-├── kanji.json       # the store — top-level keys are kanji chars
-└── kanji_map.json   # { kanji: "<kyu_label>/<source_path>", … }
+<project root>/data/<source>/<type>/
+└── e.g. data/jitenon/kanji/
+    ├── kanji.json       # the store — top-level keys are kanji chars
+    └── kanji_map.json   # { kanji: "<kyu_label>/<source_path>", … }
 ```
 
 Both files are plain UTF-8 JSON, human-inspectable. See `CLAUDE.md` for the

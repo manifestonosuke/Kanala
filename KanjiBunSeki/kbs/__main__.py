@@ -3,6 +3,7 @@ import sys
 import time
 from pathlib import Path
 
+from . import anki
 from .acquirer import KanjiAcquirer
 from .display.cli import CliDisplay
 from .map import KanjiMap, build_map
@@ -12,12 +13,19 @@ from .store import KanjiStore
 from .transport.base import Transport
 from .transport.http import HttpTransport
 
-SOURCE_BASE = Path(__file__).resolve().parent.parent / "source"
-SOURCE_NAME = SOURCES[DEFAULT]["name"]
-SOURCE_DIR  = SOURCE_BASE / SOURCE_NAME
+DATA_BASE = Path(__file__).resolve().parent.parent / "data"
 
-KDB_NAME  = SOURCE_DIR / "kanji.json"
-KMAP_NAME = SOURCE_DIR / "kanji_map.json"
+
+def _data_dir(source_name: str) -> Path:
+    return DATA_BASE / source_name / "kanji"
+
+
+def _resolve_paths(args: argparse.Namespace) -> None:
+    d = _data_dir(args.source)
+    if args.store is None:
+        args.store = d / "kanji.json"
+    if args.map is None:
+        args.map = d / "kanji_map.json"
 
 
 def _vcheck(args: argparse.Namespace, label: str, path: Path) -> None:
@@ -67,7 +75,7 @@ def _resolve_identifier(
 
 
 def cmd_get(args: argparse.Namespace) -> None:
-    cfg = SOURCES[DEFAULT]
+    cfg = SOURCES[args.source]
     source: KanjiSource = cfg["class"](cfg)
     transport = HttpTransport()
     _vcheck(args, "Store", args.store)
@@ -81,6 +89,12 @@ def cmd_get(args: argparse.Namespace) -> None:
         display.show(args.target, store.get(args.target))
         return
 
+    if cfg["bulk"]:
+        sys.exit(
+            f"Source {cfg['name']!r} is bulk-only; run "
+            f"`kbs.py --source {cfg['name']} build` first, then `get` reads from the store."
+        )
+
     _vcheck(args, "Map", args.map)
     kmap = KanjiMap(args.map)
     identifier = _resolve_identifier(args.target, source, transport, kmap, cfg)
@@ -92,7 +106,7 @@ def cmd_get(args: argparse.Namespace) -> None:
 
 
 def cmd_map(args: argparse.Namespace) -> None:
-    cfg = SOURCES[DEFAULT]
+    cfg = SOURCES[args.source]
     if not cfg["needs_map"]:
         sys.exit(f"Source {cfg['name']!r} does not use a map.")
     _vcheck(args, "Map", args.map)
@@ -107,14 +121,48 @@ def _ask_continue() -> bool:
     return ans not in {"n", "no"}
 
 
+def _build_bulk(
+    args: argparse.Namespace,
+    cfg: dict,
+    source: KanjiSource,
+    transport: Transport,
+    store: KanjiStore,
+) -> None:
+    print(f"fetching {source.bulk_url()}", end="", flush=True)
+    start = time.perf_counter()
+    entries = KanjiAcquirer(source, transport).acquire_all()
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+    print(f" {elapsed_ms}ms → {len(entries)} entries")
+
+    added = updated = 0
+    for kanji, data in entries.items():
+        if store.has(kanji):
+            if not args.refresh:
+                continue
+            updated += 1
+        else:
+            added += 1
+        store.add(kanji, data)
+    store.save()
+    skipped = len(entries) - added - updated
+    print(
+        f"Built {added} new, {updated} refreshed, {skipped} skipped → {args.store}"
+    )
+
+
 def cmd_build(args: argparse.Namespace) -> None:
-    cfg = SOURCES[DEFAULT]
+    cfg = SOURCES[args.source]
     source: KanjiSource = cfg["class"](cfg)
     transport = HttpTransport()
-    _vcheck(args, "Map", args.map)
-    kmap = KanjiMap(args.map)
     _vcheck(args, "Store", args.store)
     store = KanjiStore(args.store)
+
+    if cfg["bulk"]:
+        _build_bulk(args, cfg, source, transport, store)
+        return
+
+    _vcheck(args, "Map", args.map)
+    kmap = KanjiMap(args.map)
 
     if cfg["needs_map"] and not kmap.all():
         _refresh_map(kmap, source, transport, cfg["name"])
@@ -215,40 +263,20 @@ def _list_matching(
 
 
 def cmd_anki(args: argparse.Namespace) -> None:
-    if not args.kanji or len(args.kanji) != 1:
-        sys.exit("Usage: kbs.py anki <kanji>   (exactly one character)")
+    if args.source not in anki.VIEWS:
+        sys.exit(f"No KanjiView registered for source {args.source!r}.")
 
     _vcheck(args, "Store", args.store)
-    store = KanjiStore(args.store)
-    data = store.get(args.kanji)
-    if data is None:
-        sys.exit(f"「{args.kanji}」 not in store. Run `kbs.py get {args.kanji}` first.")
+    store = KanjiStore(args.store).all()
+    if not store:
+        sys.exit("Empty store — run `kbs.py build` first.")
 
-    print(args.kanji)
+    note = anki.NOTE_TYPES[args.type]()
+    fmt = anki.FORMATS[args.format]()
+    out = args.out or anki.default_out_path(DATA_BASE, args.type, args.format)
 
-    yomi = data.get("読み", {})
-    for kind in ("音", "訓"):
-        block = yomi.get(kind, {})
-        joyo = block.get("常", [])
-        ext = block.get("外", [])
-        if not joyo and not ext:
-            continue
-        parts = []
-        if joyo:
-            parts.append(" ".join(joyo))
-        if ext:
-            parts.append(f"({' '.join(ext)})")
-        print(f"{kind}: {' '.join(parts)}")
-
-    bushu = data.get("部首", "")
-    if bushu:
-        print(f"部首: {bushu}")
-
-    imi = data.get("意味", [])
-    if imi:
-        print("意味:")
-        for line in imi:
-            print(f"  - {line}")
+    count = anki.Anki(anki.VIEWS[args.source], note, fmt).generate(store, out)
+    print(f"Wrote {count} notes ({args.type}, {args.format}) → {out}")
 
 
 def cmd_kanken(args: argparse.Namespace) -> None:
@@ -334,16 +362,22 @@ def cmd_joyo(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(prog="kbs")
     parser.add_argument(
+        "--source",
+        choices=sorted(SOURCES.keys()),
+        default=DEFAULT,
+        help=f"Data source (default: {DEFAULT})",
+    )
+    parser.add_argument(
         "--store",
         type=Path,
-        default=KDB_NAME,
-        help=f"JSON store path (default: {KDB_NAME})",
+        default=None,
+        help="JSON store path (default: <data>/<source>/kanji/kanji.json)",
     )
     parser.add_argument(
         "--map",
         type=Path,
-        default=KMAP_NAME,
-        help=f"Kanji→path map JSON (default: {KMAP_NAME})",
+        default=None,
+        help="Kanji→path map JSON (default: <data>/<source>/kanji/kanji_map.json)",
     )
     parser.add_argument(
         "-v", "--verbose", action="store_true",
@@ -405,16 +439,30 @@ def main() -> None:
 
     p_anki = sub.add_parser(
         "anki",
-        help="Compact Anki-style view of one kanji: 音/訓 readings (with 外 in parens), 部首, 意味.",
+        help="Generate Anki notes from the store (one file per --type/--format).",
     )
     p_anki.add_argument(
-        "kanji",
-        type=str,
-        help="Exactly one kanji character (must already be in the store).",
+        "--type",
+        choices=sorted(anki.NOTE_TYPES.keys()),
+        default=anki.DEFAULT_TYPE,
+        help=f"Note type (default: {anki.DEFAULT_TYPE})",
+    )
+    p_anki.add_argument(
+        "--format",
+        choices=sorted(anki.FORMATS.keys()),
+        default=anki.DEFAULT_FORMAT,
+        help=f"Output format (default: {anki.DEFAULT_FORMAT})",
+    )
+    p_anki.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Output file path (default: data/anki/<note-type>.<ext>)",
     )
     p_anki.set_defaults(func=cmd_anki)
 
     args = parser.parse_args()
+    _resolve_paths(args)
     args.func(args)
 
 

@@ -4,7 +4,10 @@
       "WebFetch(domain:kanji.jitenon.jp)",
       "Bash(curl -s \"https://kanji.jitenon.jp/kanji/043\" -o /tmp/jitenon_043.html)",
       "Read(//tmp/**)",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(git fetch *)",
+      "Bash(git rev-list *)"
     ]
   }
 }
