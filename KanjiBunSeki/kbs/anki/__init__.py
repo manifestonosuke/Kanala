@@ -1,12 +1,18 @@
 from pathlib import Path
 
-from .format import AnkiFormat, JsonFormat
-from .note import AnkiNote, Type1Note
-from .view import JitenonView, KanjiView
+from .format import AnkiFormat, CsvFormat, JsonFormat
+from .note import AnkiNote, TangoVocabNote, Type1Note
+from .view import JitenonView, KanjiView, TangoView
 
-NOTE_TYPES: dict[str, type[AnkiNote]] = {"type1": Type1Note}
-FORMATS:    dict[str, type[AnkiFormat]] = {"json":  JsonFormat}
-VIEWS:      dict[str, type[KanjiView]]  = {"jitenon": JitenonView}
+NOTE_TYPES: dict[str, type[AnkiNote]] = {
+    "type1": Type1Note,
+    "tango": TangoVocabNote,
+}
+FORMATS: dict[str, type[AnkiFormat]] = {
+    "json": JsonFormat,
+    "csv":  CsvFormat,
+}
+VIEWS: dict[str, type[KanjiView]] = {"jitenon": JitenonView}
 
 DEFAULT_TYPE = "type1"
 DEFAULT_FORMAT = "json"

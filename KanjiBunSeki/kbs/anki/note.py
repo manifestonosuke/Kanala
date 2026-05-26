@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from .view import KanjiView
+from .view import KanjiView, TangoView
 
 
 class AnkiNote(ABC):
@@ -8,7 +8,7 @@ class AnkiNote(ABC):
     FIELDS: list[str]
 
     @abstractmethod
-    def render(self, view: KanjiView) -> dict: ...
+    def render(self, view) -> dict: ...
 
 
 class Type1Note(AnkiNote):
@@ -44,3 +44,19 @@ class Type1Note(AnkiNote):
         if view.gakunen():
             parts.append(view.gakunen())
         return " ".join(parts)
+
+
+class TangoVocabNote(AnkiNote):
+    NAME = "kbs-tango"
+    FIELDS = ["表", "裏"]
+
+    def render(self, view: TangoView) -> dict:
+        lines = [view.headword()]
+        for d in view.definitions():
+            field = d.get("分野", "")
+            text = d.get("本文", "")
+            lines.append(f"[{field}] {text}" if field else text)
+        return {
+            "表": view.reading(),
+            "裏": "<br>".join(lines),
+        }

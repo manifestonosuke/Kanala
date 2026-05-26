@@ -8,8 +8,9 @@ from .acquirer import KanjiAcquirer
 from .display.cli import CliDisplay
 from .map import KanjiMap, build_map
 from .source.kanji.base import KanjiSource
-from .sources import DEFAULT, SOURCES
+from .sources import DEFAULT, DEFAULT_TANGO, SOURCES
 from .store import KanjiStore
+from .tango import Tango
 from .transport.base import Transport
 from .transport.http import HttpTransport
 
@@ -21,6 +22,9 @@ def _data_dir(source_name: str) -> Path:
 
 
 def _resolve_paths(args: argparse.Namespace) -> None:
+    cfg = SOURCES.get(args.source, {})
+    if cfg.get("type") != "kanji":
+        return
     d = _data_dir(args.source)
     if args.store is None:
         args.store = d / "kanji.json"
@@ -279,6 +283,79 @@ def cmd_anki(args: argparse.Namespace) -> None:
     print(f"Wrote {count} notes ({args.type}, {args.format}) → {out}")
 
 
+def _parse_selection(raw: str, n: int) -> list[int]:
+    """Parse a selection like "1", "1,3", "1-3", "1,3-5" into a sorted unique list."""
+    if not raw.strip():
+        raise ValueError("empty selection")
+    result: set[int] = set()
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            a, b = part.split("-", 1)
+            lo, hi = int(a), int(b)
+            if lo > hi:
+                raise ValueError(f"invalid range {part!r}")
+            result.update(range(lo, hi + 1))
+        else:
+            result.add(int(part))
+    if not all(1 <= i <= n for i in result):
+        raise ValueError(f"numbers must be between 1 and {n}")
+    return sorted(result)
+
+
+def cmd_tango(args: argparse.Namespace) -> None:
+    source_name = args.source
+    cfg = SOURCES.get(source_name)
+    if not cfg or cfg.get("type") != "tango":
+        source_name = DEFAULT_TANGO
+        cfg = SOURCES[source_name]
+
+    source = cfg["class"](cfg)
+    transport = HttpTransport()
+
+    url = source.url_for(args.word)
+    print(f"fetching {url}", end="", flush=True)
+    start = time.perf_counter()
+    try:
+        entry = Tango(source, transport).lookup(args.word)
+    except Exception as e:
+        print(" FAILED")
+        sys.exit(f"  {e}")
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+    print(f" {elapsed_ms}ms")
+
+    headword = entry["見出し"]
+    reading = entry["読み"][0] if entry["読み"] else ""
+    pos = entry["品詞"]
+    print()
+    print(f"{headword} ({reading}) — {pos}")
+    for d in entry["語義"]:
+        tag = f"[{d['分野']}] " if d["分野"] else ""
+        print(f"  {d['番号']}. {tag}{d['本文']}")
+
+    while True:
+        try:
+            raw = input("\n採用する語義の番号は？ (例: 1,3-5)  > ")
+        except EOFError:
+            sys.exit("\nNo selection given.")
+        try:
+            selected = _parse_selection(raw, len(entry["語義"]))
+            if selected:
+                break
+        except ValueError as e:
+            print(f"  入力が無効です: {e}")
+
+    view = anki.TangoView(entry, selected=selected)
+    note = anki.TangoVocabNote()
+    fmt = anki.CsvFormat()
+
+    out = args.out or (DATA_BASE / "anki" / "anki-test.csv")
+    fmt.write([note.render(view)], out)
+    print(f"\n→ {out}")
+
+
 def cmd_kanken(args: argparse.Namespace) -> None:
     _vcheck(args, "Store", args.store)
     store = KanjiStore(args.store)
@@ -460,6 +537,23 @@ def main() -> None:
         help="Output file path (default: data/anki/<note-type>.<ext>)",
     )
     p_anki.set_defaults(func=cmd_anki)
+
+    p_tango = sub.add_parser(
+        "tango",
+        help="Vocabulary lookup: fetch a word, pick definitions interactively, append to CSV.",
+    )
+    p_tango.add_argument(
+        "word",
+        type=str,
+        help="Word to look up (e.g. 幕府).",
+    )
+    p_tango.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Output CSV path (default: data/anki/anki-test.csv)",
+    )
+    p_tango.set_defaults(func=cmd_tango)
 
     args = parser.parse_args()
     _resolve_paths(args)
