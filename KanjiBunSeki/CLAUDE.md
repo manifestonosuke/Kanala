@@ -23,10 +23,20 @@ Two source flavours are supported:
     │   ├── base.py             # Transport ABC — fetch(url) → str
     │   └── http.py             # HttpTransport — requests-based
     ├── source/
-    │   └── kanji/
-    │       ├── base.py         # KanjiSource — per-kanji methods + bulk_url/parse_all (default NotImplementedError; sources override what they need)
-    │       ├── jitenon.py      # JitenonKanjiSource — per-kanji mode, BeautifulSoup parsing
-    │       └── bunka.py        # BunkaKanjiSource — bulk mode, parses bunka.go.jp 常用漢字索引 table
+    │   ├── kanji/
+    │   │   ├── base.py         # KanjiSource — per-kanji methods + bulk_url/parse_all (default NotImplementedError; sources override what they need)
+    │   │   ├── jitenon.py      # JitenonKanjiSource — per-kanji mode, BeautifulSoup parsing
+    │   │   └── bunka.py        # BunkaKanjiSource — bulk mode, parses bunka.go.jp 常用漢字索引 table
+    │   └── tango/
+    │       ├── base.py         # TangoSource ABC — url_for(word) + parse(text, word) → entry dict
+    │       └── wiktionary.py   # WiktionaryTangoSource — ja.wiktionary.org parser
+    ├── tango.py                # Tango — vocabulary acquirer (DI: TangoSource + Transport)
+    ├── kanken.py               # Kanken level vocabulary: LEVEL_TO_STORE, parse_selector(token) → list[str]|None (handles "1", "1.5", "1-3")
+    ├── anki/                   # Anki card generation. One file per card type; each card is bound to exactly one source.
+    │   ├── base.py             # AnkiCard ABC — NAME/SOURCE/FIELDS/KEY + build(args, data_base) → list[dict]
+    │   ├── format.py           # CsvFormat — TSV writer with KEY-based dedup and per-row [r/s] prompt
+    │   ├── kankenjiten.py      # KankenjitenCard — bulk: reads jitenon kanji store → 漢字/部首/音読/訓読/意味/分類
+    │   └── tangowiki.py        # TangowikiCard — single-entry: fetches a word from wiktionary, interactive 語義 picker
     └── display/
         ├── base.py             # Display ABC   — show(kanji, data)
         └── cli.py              # CliDisplay    — terminal output (default)
@@ -45,20 +55,40 @@ acquirer: `transport.fetch(source.url_for(id))` → `source.parse(text)`.
 
 ## CLI
 
-Three subcommands. Run from the project root (so `kbs/` is importable):
+Run from the project root (so `kbs/` is importable):
 
 ```bash
+# Kanji acquisition (per-source)
 python kbs.py get <kanji>              # display the kanji (fetch if not yet in store)
 python kbs.py get <kanji> -r           # force a re-fetch even if already in store
 python kbs.py get <url>                # fetch by full source URL (always re-fetches)
 python kbs.py map                      # rebuild the kanji→path map (per-kanji sources only)
 python kbs.py build                    # bulk: one fetch of the whole table; per-kanji: iterate the map
 python kbs.py build -r                 # re-fetch / overwrite existing entries
-python kbs.py --source <name> ...      # pick source (default: jitenon; available: jitenon, bunka.org)
+python kbs.py --source <name> ...      # pick source (default: jitenon; available: jitenon, bunka.org, wiktionary)
 python kbs.py --store path.json ...    # override store path (default derives from --source)
 python kbs.py --map   path.json ...    # override map path   (default derives from --source)
+
+# Vocabulary lookup (display only — does NOT write any file)
+python kbs.py tango <word>             # fetch from the default tango source, print headword/reading/品詞/語義
+
+# Anki card generation (CSV with dedup prompt)
+python kbs.py anki --type kankenjiten <selector> ...   # jitenon kanji cards. Each selector is a kanken level / range / kanji string.
+python kbs.py anki --type kankenjiten 10               #   → all 10級 kanji (~80)
+python kbs.py anki --type kankenjiten 1.5              #   → all 準1級 kanji
+python kbs.py anki --type kankenjiten 1-3              #   → levels 1, 1.5, 2, 2.5, 3 (half-levels included)
+python kbs.py anki --type kankenjiten 生学校            #   → just those kanji (must be in the jitenon store)
+python kbs.py anki --type kankenjiten 10 生            #   → union of selectors
+python kbs.py anki --type tangowiki <word>             # fetch a word, prompt for 語義 selection, append one row
+python kbs.py anki --type <type> --out <path>          # override output (default: data/anki/<type>.csv)
+
 # Equivalent: python -m kbs ...
 ```
+
+### `anki` and `tango`
+
+- **`anki`** is the only way to write cards. Each `--type` is bound to **exactly one source** (e.g. `kankenjiten` → jitenon; `tangowiki` → wiktionary) — the type implies the source, so the global `--source` flag is ignored for `anki`. Output is always tab-separated CSV at `data/anki/<type>.csv`. Each card type declares its own `FIELDS` (CSV columns) and `KEY` (the field used to detect duplicates). When a row with an existing key is about to be written, the user is prompted per row: `「<key>」 already exists. Replace or skip? [r/s]`. Each card module also decides its own interactivity and required positional args — e.g. `tangowiki` requires exactly one word and prompts for 語義 selection inside its `build()`; `kankenjiten` requires ≥1 selector (level/range/kanji-string) and errors otherwise. Kanken level vocabulary (`1`, `1.5`, `2.5`, `1-3`, etc.) is centralised in `kbs/kanken.py` and shared by `kankenjiten.build()` and `cmd_kanken`.
+- **`tango`** is display-only. It fetches a word and prints headword / reading / 品詞 / numbered 語義. No prompt, no file write. To add a vocabulary card, use `anki --type tangowiki <word>`.
 
 For **bulk sources** (e.g. `bunka.org`):
 - `build` is the only fetch path. It downloads the index page once and writes every entry.

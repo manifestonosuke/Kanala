@@ -3,7 +3,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import anki
+from . import anki, kanken
 from .acquirer import KanjiAcquirer
 from .display.cli import CliDisplay
 from .map import KanjiMap, build_map
@@ -214,16 +214,9 @@ def _is_kanji(c: str) -> bool:
     return "一" <= c <= "鿿"
 
 
-KANKEN_LEVEL_TO_STORE = {
-    "1":   "1級",   "1.5": "準1級",
-    "2":   "2級",   "2.5": "準2級",
-    "3":   "3級",   "4":   "4級",
-    "5":   "5級",   "6":   "6級",
-    "7":   "7級",   "8":   "8級",
-    "9":   "9級",   "10":  "10級",
-}
-KANKEN_DISPLAY_ORDER = ("10", "9", "8", "7", "6", "5", "4", "3", "2.5", "2", "1.5", "1")
-KANKEN_STORE_TO_LEVEL = {v: k for k, v in KANKEN_LEVEL_TO_STORE.items()}
+KANKEN_LEVEL_TO_STORE = kanken.LEVEL_TO_STORE
+KANKEN_DISPLAY_ORDER = kanken.DISPLAY_ORDER
+KANKEN_STORE_TO_LEVEL = kanken.STORE_TO_LEVEL
 
 
 def _print_rows(rows: list[tuple[str, list[str]]]) -> None:
@@ -267,42 +260,18 @@ def _list_matching(
 
 
 def cmd_anki(args: argparse.Namespace) -> None:
-    if args.source not in anki.VIEWS:
-        sys.exit(f"No KanjiView registered for source {args.source!r}.")
-
-    _vcheck(args, "Store", args.store)
-    store = KanjiStore(args.store).all()
-    if not store:
-        sys.exit("Empty store — run `kbs.py build` first.")
-
-    note = anki.NOTE_TYPES[args.type]()
-    fmt = anki.FORMATS[args.format]()
-    out = args.out or anki.default_out_path(DATA_BASE, args.type, args.format)
-
-    count = anki.Anki(anki.VIEWS[args.source], note, fmt).generate(store, out)
-    print(f"Wrote {count} notes ({args.type}, {args.format}) → {out}")
-
-
-def _parse_selection(raw: str, n: int) -> list[int]:
-    """Parse a selection like "1", "1,3", "1-3", "1,3-5" into a sorted unique list."""
-    if not raw.strip():
-        raise ValueError("empty selection")
-    result: set[int] = set()
-    for part in raw.split(","):
-        part = part.strip()
-        if not part:
-            continue
-        if "-" in part:
-            a, b = part.split("-", 1)
-            lo, hi = int(a), int(b)
-            if lo > hi:
-                raise ValueError(f"invalid range {part!r}")
-            result.update(range(lo, hi + 1))
-        else:
-            result.add(int(part))
-    if not all(1 <= i <= n for i in result):
-        raise ValueError(f"numbers must be between 1 and {n}")
-    return sorted(result)
+    card_cls = anki.CARDS.get(args.type)
+    if card_cls is None:
+        sys.exit(
+            f"Unknown anki type {args.type!r}. Available: {', '.join(sorted(anki.CARDS))}"
+        )
+    card = card_cls()
+    rows = card.build(args, DATA_BASE)
+    out = args.out or anki.default_out_path(DATA_BASE, card.NAME)
+    added, replaced, skipped = anki.CsvFormat().write(
+        rows, out, card.FIELDS, card.KEY,
+    )
+    print(f"{card.NAME}: added {added}, replaced {replaced}, skipped {skipped} → {out}")
 
 
 def cmd_tango(args: argparse.Namespace) -> None:
@@ -334,26 +303,6 @@ def cmd_tango(args: argparse.Namespace) -> None:
     for d in entry["語義"]:
         tag = f"[{d['分野']}] " if d["分野"] else ""
         print(f"  {d['番号']}. {tag}{d['本文']}")
-
-    while True:
-        try:
-            raw = input("\n採用する語義の番号は？ (例: 1,3-5)  > ")
-        except EOFError:
-            sys.exit("\nNo selection given.")
-        try:
-            selected = _parse_selection(raw, len(entry["語義"]))
-            if selected:
-                break
-        except ValueError as e:
-            print(f"  入力が無効です: {e}")
-
-    view = anki.TangoView(entry, selected=selected)
-    note = anki.TangoVocabNote()
-    fmt = anki.CsvFormat()
-
-    out = args.out or (DATA_BASE / "anki" / "anki-test.csv")
-    fmt.write([note.render(view)], out)
-    print(f"\n→ {out}")
 
 
 def cmd_kanken(args: argparse.Namespace) -> None:
@@ -516,42 +465,36 @@ def main() -> None:
 
     p_anki = sub.add_parser(
         "anki",
-        help="Generate Anki notes from the store (one file per --type/--format).",
+        help="Add Anki cards. Each --type is bound to one source; output is CSV.",
     )
     p_anki.add_argument(
         "--type",
-        choices=sorted(anki.NOTE_TYPES.keys()),
-        default=anki.DEFAULT_TYPE,
-        help=f"Note type (default: {anki.DEFAULT_TYPE})",
-    )
-    p_anki.add_argument(
-        "--format",
-        choices=sorted(anki.FORMATS.keys()),
-        default=anki.DEFAULT_FORMAT,
-        help=f"Output format (default: {anki.DEFAULT_FORMAT})",
+        choices=sorted(anki.CARDS.keys()),
+        default=anki.DEFAULT_CARD,
+        help=f"Card type (default: {anki.DEFAULT_CARD})",
     )
     p_anki.add_argument(
         "--out",
         type=Path,
         default=None,
-        help="Output file path (default: data/anki/<note-type>.<ext>)",
+        help="Output CSV path (default: data/anki/<type>.csv)",
+    )
+    p_anki.add_argument(
+        "args",
+        nargs="*",
+        type=str,
+        help="Card-specific args. tangowiki: one word. kankenjiten: kanken levels/ranges and/or kanji chars.",
     )
     p_anki.set_defaults(func=cmd_anki)
 
     p_tango = sub.add_parser(
         "tango",
-        help="Vocabulary lookup: fetch a word, pick definitions interactively, append to CSV.",
+        help="Display a vocabulary entry (lookup only — use `anki --type tangowiki <word>` to add a card).",
     )
     p_tango.add_argument(
         "word",
         type=str,
         help="Word to look up (e.g. 幕府).",
-    )
-    p_tango.add_argument(
-        "--out",
-        type=Path,
-        default=None,
-        help="Output CSV path (default: data/anki/anki-test.csv)",
     )
     p_tango.set_defaults(func=cmd_tango)
 
